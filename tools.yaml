@@ -1,0 +1,162 @@
+# SQLite source
+sources:
+  app-sqlite:
+    kind: sqlite
+    database: "/Users/khangvt/projects/mcp-toolbox-db/db/app.db" # absolute path recommended for production
+
+# Safe tools: parameterized SQL statements
+tools:
+  search_customers:
+    kind: sqlite-sql
+    source: app-sqlite
+    description: Search customers by name (case-insensitive).
+    parameters:
+      - name: name_like
+        type: string
+        description: Name pattern, e.g. %ali%.
+    statement: |
+      SELECT id, name, email, created_at
+      FROM customers
+      WHERE lower(name) LIKE lower(?)
+      ORDER BY created_at DESC;
+
+  list_products:
+    kind: sqlite-sql
+    source: app-sqlite
+    description: List products with price and stock.
+    statement: |
+      SELECT id, sku, name, price_cents, stock
+      FROM products
+      ORDER BY id ASC;
+
+  get_customer_orders:
+    kind: sqlite-sql
+    source: app-sqlite
+    description: Get orders and items for a given customer id.
+    parameters:
+      - name: customer_id
+        type: integer
+        description: ID of the customer whose orders to fetch
+    statement: |
+      SELECT o.id AS order_id, o.status, o.created_at,
+             p.name AS product, oi.quantity, oi.price_cents
+      FROM orders o
+      JOIN order_items oi ON oi.order_id = o.id
+      JOIN products p ON p.id = oi.product_id
+      WHERE o.customer_id = ?
+      ORDER BY o.created_at DESC, o.id DESC;
+
+  create_order:
+    kind: sqlite-sql
+    source: app-sqlite
+    description: Create a new order for a customer with pending status.
+    parameters:
+      - name: customer_id
+        type: integer
+        description: ID of the customer placing the order
+    statement: |
+      INSERT INTO orders (customer_id, status) VALUES (?, 'pending')
+      RETURNING id, customer_id, status, created_at;
+
+  add_order_item:
+    kind: sqlite-sql
+    source: app-sqlite
+    description: Add an item to an order (quantity >= 1).
+    parameters:
+      - name: order_id
+        type: integer
+        description: ID of the order
+      - name: product_id
+        type: integer
+        description: ID of the product to add
+      - name: quantity
+        type: integer
+        description: Quantity of product to add
+    statement: |
+      INSERT INTO order_items (order_id, product_id, quantity, price_cents)
+      SELECT ?, ?, ?, price_cents FROM products WHERE id = ?
+      RETURNING id, order_id, product_id, quantity, price_cents;
+
+  update_order_status:
+    kind: sqlite-sql
+    source: app-sqlite
+    description: Update order status to one of pending, paid, shipped, cancelled.
+    parameters:
+      - name: order_id
+        type: integer
+        description: ID of the order to update
+      - name: new_status
+        type: string
+        description: New status value (pending, paid, shipped, cancelled)
+    statement: |
+      UPDATE orders
+      SET status = ?
+      WHERE id = ?
+      RETURNING id, customer_id, status, created_at;
+
+  sales_by_month:
+    kind: sqlite-sql
+    source: app-sqlite
+    description: Aggregate total sales by calendar month; returns one row per month.
+    parameters:
+      - name: start_date
+        type: string
+        description: Inclusive ISO timestamp (e.g., 2024-01-01T00:00:00Z)
+      - name: end_date
+        type: string
+        description: Inclusive ISO timestamp (e.g., 2024-12-31T23:59:59Z)
+      - name: currency
+        type: string
+        description: Optional display currency code (e.g., VND or USD)
+        required: false # Explicitly mark this parameter as optional
+    statement: |
+      SELECT
+        strftime('%Y-%m', o.created_at) AS ym,
+        SUM(oi.quantity * oi.price_cents) AS total_cents
+      FROM orders o
+      JOIN order_items oi ON oi.order_id = o.id
+      WHERE o.created_at BETWEEN ? AND ?
+      GROUP BY ym
+      ORDER BY ym;
+  
+  get_customer_value_by_status:
+    kind: sqlite-sql
+    source: app-sqlite
+    description: Calculate the total value of orders for a customer, grouped by status.
+    parameters:
+      - name: customer_id
+        type: integer
+        description: The ID of the customer.
+    statement: |
+      SELECT
+        o.status,
+        SUM(oi.quantity * oi.price_cents) AS total_value_cents
+      FROM orders o
+      JOIN order_items oi ON oi.order_id = o.id
+      WHERE o.customer_id = ?
+      GROUP BY o.status
+      ORDER BY o.status;
+  # Add this new tool to your existing tools.yaml file
+
+  execute_dynamic_sql:
+    # This tool is a declaration for the LLM. 
+    # We use a valid 'kind' but will intercept its call in app.py.
+    kind: sqlite-sql
+    source: app-sqlite
+    description: >-
+      Use this tool for complex or ad-hoc questions that cannot be
+      answered by other predefined tools. Generates and executes a read-only
+      SQL query from a natural language question.
+    parameters:
+      - name: natural_language_query
+        type: string
+        description: The user's question in natural language (e.g., "show me the top 5 customers by total sales").
+        required: true
+      - name: max_results
+        type: integer
+        description: The maximum number of rows to return from the query.
+        required: false
+        default: 100
+    # This dummy statement ensures the tool is valid for the MCP parser.
+    # It will NOT be executed.
+    statement: "SELECT 'This is a placeholder for dynamic SQL execution';"

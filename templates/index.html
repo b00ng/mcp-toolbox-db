@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MCP AI Assistant</title>
+    <!-- Include Chart.js from a CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f0f2f5;
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            color: #1c1e21;
+        }
+        #app-container {
+            width: 90%;
+            max-width: 800px;
+            height: 90vh;
+            display: flex;
+            flex-direction: column;
+            background-color: #ffffff;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+        #chatbox {
+            flex-grow: 1;
+            padding: 20px;
+            overflow-y: auto;
+            border-bottom: 1px solid #dddfe2;
+        }
+        .message {
+            margin-bottom: 15px;
+            padding: 10px 15px;
+            border-radius: 18px;
+            max-width: 75%;
+            line-height: 1.4;
+        }
+        .message.user {
+            background-color: #0084ff;
+            color: white;
+            margin-left: auto;
+            border-bottom-right-radius: 4px;
+        }
+        .message.bot {
+            background-color: #e4e6eb;
+            color: #050505;
+            margin-right: auto;
+            border-bottom-left-radius: 4px;
+        }
+        .message pre {
+            margin: 0;
+            white-space: pre-wrap; /* Allows text to wrap */
+            word-wrap: break-word; /* Breaks long words */
+            font-family: inherit;
+        }
+        #input-container {
+            display: flex;
+            padding: 10px;
+            background-color: #ffffff;
+        }
+        #messageInput {
+            flex-grow: 1;
+            border: 1px solid #ccd0d5;
+            border-radius: 18px;
+            padding: 10px 15px;
+            font-size: 16px;
+            outline: none;
+        }
+        #messageInput:focus {
+            border-color: #0084ff;
+        }
+        #sendButton {
+            background-color: #0084ff;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            margin-left: 10px;
+            cursor: pointer;
+            font-size: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        #sendButton:disabled {
+            background-color: #a0c0e0;
+            cursor: not-allowed;
+        }
+        #chart-container {
+            padding: 15px;
+            height: 300px; /* Fixed height for the chart area */
+            display: none; /* Initially hidden */
+            border-bottom: 1px solid #dddfe2;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="app-container">
+        <div id="chatbox">
+             <div class="message bot">
+                <pre>Hello! I am your database assistant. How can I help you today? Try asking "sales by month".</pre>
+            </div>
+        </div>
+        <div id="chart-container">
+            <canvas id="myChart"></canvas>
+        </div>
+        <div id="input-container">
+            <input type="text" id="messageInput" placeholder="Type a message...">
+            <button id="sendButton" title="Send">&rarr;</button>
+        </div>
+    </div>
+
+    <script>
+        const chatbox = document.getElementById('chatbox');
+        const messageInput = document.getElementById('messageInput');
+        const sendButton = document.getElementById('sendButton');
+        const chartContainer = document.getElementById('chart-container');
+        let myChart = null; // Variable to hold the chart instance
+
+        // Function to add a message to the chatbox
+        function addMessage(content, sender = 'bot') {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${sender}`;
+            const pre = document.createElement('pre');
+            pre.textContent = content;
+            messageDiv.appendChild(pre);
+            chatbox.appendChild(messageDiv);
+            chatbox.scrollTop = chatbox.scrollHeight;
+        }
+
+        // Function to render a chart using Chart.js
+        function renderChart(payload) {
+            if (myChart) {
+                myChart.destroy(); // Clear previous chart if it exists
+            }
+
+            const labels = payload.data.map(p => new Date(p.x).toLocaleDateString('en-CA', { year: 'numeric', month: 'short' }));
+            const dataPoints = payload.data.map(p => p.y);
+            
+            const spec = payload.spec || {};
+            const title = spec.title || 'Chart';
+            
+            addMessage(`📊 Chart: ${payload.summary}`, 'bot');
+
+            const ctx = document.getElementById('myChart').getContext('2d');
+            myChart = new Chart(ctx, {
+                type: spec.kind || 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: title,
+                        data: dataPoints,
+                        backgroundColor: 'rgba(54, 162, 235, 0.6)',
+                        borderColor: 'rgba(54, 162, 235, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                callback: function(value) {
+                                    return (value / 100).toLocaleString('en-US', { style: 'currency', currency: spec.currency || 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 });
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+            chartContainer.style.display = 'block';
+        }
+
+        // Main function to handle sending a message
+        async function sendMessage() {
+            const message = messageInput.value.trim();
+            if (!message) return;
+
+            addMessage(message, 'user');
+            messageInput.value = '';
+            sendButton.disabled = true;
+
+            try {
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: message }),
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.summary || data.error || `HTTP error! status: ${response.status}`);
+                }
+
+                if (data.type === 'chart') {
+                    renderChart(data);
+                } else if (data.type === 'text' && data.summary) {
+                    addMessage(data.summary, 'bot');
+                    chartContainer.style.display = 'none';
+                } else if (data.type === 'error' && data.summary) {
+                     addMessage(`Sorry, an error occurred: ${data.summary}`, 'bot');
+                } else {
+                    addMessage(JSON.stringify(data, null, 2), 'bot');
+                }
+
+            } catch (error) {
+                console.error('Fetch error:', error);
+                addMessage(`Sorry, I couldn't process your request: ${error.message}`, 'bot');
+            } finally {
+                sendButton.disabled = false;
+                messageInput.focus();
+            }
+        }
+
+        sendButton.addEventListener('click', sendMessage);
+        messageInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+    </script>
+
+</body>
+</html>
