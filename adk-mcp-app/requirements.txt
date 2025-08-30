@@ -1,0 +1,23 @@
+# Google Agent Development Kit
+google-genai>=0.6.0
+google-cloud-aiplatform>=1.38.0
+
+# FastAPI and WebSocket support
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+websockets>=12.0
+
+# Database and MCP integration
+sqlite3
+httpx>=0.25.0
+python-dotenv>=1.0.0
+
+# Utilities
+pydantic>=2.5.0
+python-multipart>=0.0.6
+jinja2>=3.1.0
+
+# Development
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+black>=23.0.0
